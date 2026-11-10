@@ -1,0 +1,8 @@
+{
+  "editor.codeActionsOnSave": {
+    "source.fixAll": "explicit",
+    "source.organizeImports": "explicit",
+    "source.sortMembers": "explicit"
+  },
+  "cmake.sourceDirectory": "C:/DSU Project/Smart-Lost-and-Found-main/SmartLostFoundApp/node_modules/react-native/ReactAndroid/src/main/jni/react/runtime/cxxreactpackage"
+}

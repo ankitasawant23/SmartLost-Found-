@@ -1,0 +1,145 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Check whether the logged-in user is an admin.
+    function isAdmin() {
+      return request.auth != null
+        && exists(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        )
+        && get(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        ).data.isAdmin == true;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // ITEMS
+    match /items/{itemId} {
+
+      // Logged-in users can read item listings.
+      allow read: if isSignedIn();
+
+      // A user can create an item only under their own UID.
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.type in ['lost', 'found']
+        && request.resource.data.status == 'unclaimed'
+        && request.resource.data.isApproved == false;
+
+      // Only the item owner or admin can update listings.
+      // Claimant cannot directly change item status.
+      allow update: if isSignedIn()
+        && (
+          isAdmin()
+          || (
+            resource.data.userId == request.auth.uid
+            && request.resource.data.userId == resource.data.userId
+            && request.resource.data.status == resource.data.status
+            && request.resource.data.claimantId == resource.data.claimantId
+          )
+        );
+
+      // Owner or admin can delete an item.
+      allow delete: if isSignedIn()
+        && (
+          resource.data.userId == request.auth.uid
+          || isAdmin()
+        );
+    }
+
+    // USERS
+    match /users/{userId} {
+
+      // A user can read their own profile.
+      // Admin can read user profiles.
+      allow read: if isSignedIn()
+        && (
+          request.auth.uid == userId
+          || isAdmin()
+        );
+
+      // Users cannot promote themselves to admin.
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.data.isAdmin == false;
+
+      // Users can update their own profile without changing isAdmin.
+      allow update: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.data.isAdmin == resource.data.isAdmin;
+
+      // Profile deletion is restricted to admins.
+      allow delete: if isAdmin();
+    }
+
+    // CLAIM REQUESTS
+    match /claimRequests/{requestId} {
+
+      // Claimant, item owner and admin can read a request.
+      allow read: if isSignedIn()
+        && (
+          resource.data.claimantId == request.auth.uid
+          || resource.data.itemOwnerId == request.auth.uid
+          || isAdmin()
+        );
+
+      // User can submit a request only as themselves.
+      allow create: if isSignedIn()
+        && request.resource.data.claimantId == request.auth.uid
+        && request.resource.data.itemOwnerId != request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.itemId is string
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() >= 10
+        && request.resource.data.reason.size() <= 1000;
+
+      // Only an admin can review or change request status.
+      allow update: if isAdmin()
+        && resource.data.status == 'pending'
+        && request.resource.data.status in ['approved', 'rejected']
+        && request.resource.data.claimantId == resource.data.claimantId
+        && request.resource.data.itemId == resource.data.itemId;
+
+      // Requests cannot be deleted by normal users.
+      allow delete: if isAdmin();
+    }
+
+    // NOTIFICATIONS
+    match /notifications/{notificationId} {
+
+      // Only the notification recipient or admin can read.
+      allow read: if isSignedIn()
+        && (
+          resource.data.userId == request.auth.uid
+          || isAdmin()
+        );
+
+      // Notifications are created for a specific recipient.
+      // Use trusted server-side code for sensitive notifications.
+      allow create: if isSignedIn()
+        && request.resource.data.userId is string
+        && request.resource.data.title is string
+        && request.resource.data.message is string;
+
+      // Recipient can mark their notification read/unread.
+      // Admin can manage notifications.
+      allow update: if isSignedIn()
+        && (
+          isAdmin()
+          || (
+            resource.data.userId == request.auth.uid
+            && request.resource.data.userId == resource.data.userId
+            && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['read'])
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+  }
+}
